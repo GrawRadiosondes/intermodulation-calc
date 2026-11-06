@@ -9,13 +9,21 @@ search works with integer grid indices, which makes it exact and fast.
 
 Objective (lower is better): for every IM product (IM3/IM5/IM7, as in main.py) that lands within
 --threshold of any carrier, a penalty weighted by its order is added. IM3 hits are far more expensive
-than IM5 hits, which are more expensive than IM7 hits. The search is a simulated annealing over
-"move one carrier to another free grid position" steps, with several random restarts.
+than IM5 hits, which are more expensive than IM7 hits. A simulated annealing
+(over "move one carrier to another free grid position" steps) finds a good set quickly. Its cost is
+then the upper bound for an exact branch & bound search in the compiled core imcore.c, which either
+improves the set or proves that no better set exists. Build the core once with:
+    python setup.py build_ext --inplace
 """
 import argparse
 import math
 import random
 from collections import Counter
+
+try:
+    import imcore  # compiled exact search, build with: python setup.py build_ext --inplace
+except ImportError:
+    imcore = None
 
 # (k, order name, penalty weight). Product = k*f1 - (k-1)*f2, see main.py
 IM_TYPES = [(2, 'IM3', 1000), (3, 'IM5', 30), (4, 'IM7', 1)]
@@ -98,8 +106,13 @@ def anneal(n_grid, count, spacing, threshold, iterations, rng):
 
 
 def optimize(start, stop, spacing, count, threshold=0.035, step=0.01,
-             iterations=20000, restarts=10, seed=None):
-    """Return (frequency list, hits per IM order) of the best set found. Frequencies in MHz."""
+             iterations=20000, restarts=3, seed=None, time_limit=60.0, exact=True):
+    """Return (frequency list, hits per IM order, proven optimal) of the best set found. Frequencies in MHz.
+
+    Simulated annealing provides a good set quickly; its cost is then used as upper bound for the
+    exact branch & bound search of the compiled core (imcore), which either improves the set or
+    proves that no better one exists (within time_limit seconds CPU time, None = unlimited).
+    """
     rng = random.Random(seed)
     n_grid = int(round((stop - start) / step)) + 1
     spacing_idx = int(math.ceil(spacing / step - 1e-9))
@@ -115,10 +128,24 @@ def optimize(start, stop, spacing, count, threshold=0.035, step=0.01,
         if best_cost == 0:
             break
 
+    proven = best_cost == 0
+    if exact and not proven:
+        if imcore is None:
+            print('Note: compiled core not built, skipping exact search '
+                  '(run: python setup.py build_ext --inplace)')
+        else:
+            weights = tuple(weight for _, _, weight in IM_TYPES)
+            cost, channels, proven, _ = imcore.search(
+                n_grid, count, spacing_idx, threshold_idx, weights, best_cost,
+                -1.0 if time_limit is None else time_limit)
+            if channels is not None:
+                best_cost, best = cost, channels
+
     state = IMState(best, threshold_idx)
+    assert state.cost() == best_cost
     hits = {name: state.hits(name) for _, name, _ in IM_TYPES}
     freqs = [round(start + c * step, 6) for c in best]
-    return freqs, hits
+    return freqs, hits, proven
 
 
 def main():
@@ -131,14 +158,20 @@ def main():
                    help='min. distance of an IM product to a carrier [MHz] (default 0.035)')
     p.add_argument('--step', type=float, default=0.01, help='frequency grid [MHz] (default 0.01)')
     p.add_argument('--iterations', type=int, default=20000, help='annealing steps per restart')
-    p.add_argument('--restarts', type=int, default=10, help='number of random restarts')
+    p.add_argument('--restarts', type=int, default=3, help='number of annealing restarts')
     p.add_argument('--seed', type=int, default=None, help='random seed for reproducible results')
+    p.add_argument('--time-limit', type=float, default=60.0,
+                   help='CPU time limit of the exact search [s] (default 60, negative = unlimited)')
+    p.add_argument('--no-exact', action='store_true', help='annealing only, skip the exact search')
     args = p.parse_args()
 
-    freqs, hits = optimize(args.start, args.stop, args.spacing, args.count, args.threshold,
-                           args.step, args.iterations, args.restarts, args.seed)
+    time_limit = None if args.time_limit < 0 else args.time_limit
+    freqs, hits, proven = optimize(args.start, args.stop, args.spacing, args.count, args.threshold,
+                                   args.step, args.iterations, args.restarts, args.seed,
+                                   time_limit, not args.no_exact)
     print('### Optimized Frequency List: ', freqs)
     print('### Critical IM hits: ', ', '.join('%s: %d' % kv for kv in hits.items()))
+    print('### Proven optimal' if proven else '### Best set found, NOT proven optimal (time limit reached)')
 
 
 if __name__ == '__main__':
