@@ -5,11 +5,14 @@ The default list is not particularly well optimized.
 
 ## Finding an optimized frequency set
 `optimize.py` searches for a frequency set that is as intermodulation free as possible.
-Build the compiled search core once (needs a C compiler, e.g. gcc or MSVC Build Tools):
+No dependencies beyond the Python standard library (>= 3.9) are needed at runtime.
+Build the compiled search core once (needs a C compiler, e.g. gcc or MSVC Build Tools, and setuptools):
 
 ```bash
 python setup.py build_ext --inplace
 ```
+
+Alternatively, `pip install .` installs it including the command `im-optimize` (same arguments as `optimize.py`).
 
 ```bash
 python optimize.py --start 400.0 --stop 406.0 --spacing 0.3 --count 16

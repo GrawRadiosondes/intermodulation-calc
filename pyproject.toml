@@ -1,0 +1,20 @@
+[build-system]
+# Only needed to build the C extension imcore; there are no runtime dependencies beyond the standard library
+requires = ["setuptools>=80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "intermodulation-calc"
+version = "0.1.0"
+description = "Intermodulation analysis and optimization of frequency sets"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+im-optimize = "optimize:main"
+
+[tool.setuptools]
+py-modules = ["optimize"]
